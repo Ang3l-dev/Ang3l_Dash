@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard – Sielte WIP</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <!-- Tabulator CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/tabulator-tables@5.4.4/dist/css/tabulator.min.css">
+</head>
+<body>
+  <!-- logo fisso -->
+  <img src="{{ url_for('static', filename='img/sielte_logo.png') }}" class="logo" alt="Logo Sielte">
+
+  <main style="max-width:1200px; margin:6rem auto 2rem; padding:1rem; color:#fff;">
+    <h1 style="text-align:center; margin-bottom:1rem;">Dashboard</h1>
+    <div style="text-align:center; margin-bottom:2rem;">
+      <button onclick="location.href='{{ url_for('auth.logout') }}'" class="btn-primary">Logout</button>
+    </div>
+
+    <div class="filters">
+      <div>
+        <label for="filter-reparto">Reparto:</label>
+        <select id="filter-reparto"><option value="">Tutti</option></select>
+      </div>
+      <div>
+        <label for="filter-dislocazione">Dislocazione:</label>
+        <select id="filter-dislocazione"><option value="">Tutti</option></select>
+      </div>
+      <div>
+        <label for="filter-ubicazione">Ubicazione:</label>
+        <select id="filter-ubicazione"><option value="">Tutti</option></select>
+      </div>
+      <div style="margin-left:auto; display:flex; gap:1rem;">
+        <button id="download-csv" class="btn-primary">📥 SCARICA CSV</button>
+        <button id="save-changes" class="btn-primary">💾 SALVA</button>
+      </div>
+    </div>
+
+    <div id="table"></div>
+  </main>
+
+  <div class="footer-powered">Powered by Ang3l-Dev</div>
+
+  <!-- Tabulator JS -->
+  <script src="https://unpkg.com/tabulator-tables@5.4.4/dist/js/tabulator.min.js"></script>
+  <!-- Il tuo script dashboard.js -->
+  <script src="{{ url_for('static', filename='js/dashboard.js') }}?v=1"></script>
+</body>
+</html>

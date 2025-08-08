@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title>Login – Sielte WIP</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <!-- logo fisso -->
+  <img src="{{ url_for('static', filename='img/sielte_logo.png') }}" class="logo" alt="Logo Sielte">
+
+  <div class="main-container">
+    <h1 style="text-align:center; color:#fff; margin-bottom:1rem;">Login</h1>
+    <form action="{{ url_for('auth.login') }}" method="POST">
+      <label for="email">Email</label>
+      <input type="text" name="email" id="email" required>
+
+      <label for="password">Password</label>
+      <input type="password" name="password" id="password" required>
+
+      <button type="submit" class="btn-primary">Accedi</button>
+
+      {% with messages = get_flashed_messages() %}
+      {% if messages %}
+      <div style="color:#ff8080; text-align:center; margin-top:1rem;">
+        {{ messages[0] }}
+      </div>
+      {% endif %}
+      {% endwith %}
+    </form>
+  </div>
+
+  <div class="footer-powered">Powered by Ang3l-Dev</div>
+</body>
+</html>

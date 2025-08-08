@@ -1,0 +1,75 @@
+/* ===== Global & Layout ===== */
+body, html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: Arial, sans-serif;
+}
+
+/* Sfondo degradé Sielte */
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] > div {
+  background: linear-gradient(135deg, #002244 0%, #003366 50%, #0077C8 100%) !important;
+  color: #fff !important;
+}
+
+/* Logo fisso in alto a sinistra */
+.app-logo {
+  position: fixed !important;
+  top: 1rem;
+  left: 1rem;
+  width: 120px !important;
+  z-index: 1000;
+}
+
+/* Footer fisso “Powered by” */
+.app-powered {
+  position: fixed !important;
+  bottom: 1rem;
+  right: 1rem;
+  color: #fff !important;
+  font-size: 0.8rem !important;
+  z-index: 1000;
+}
+
+/* ===== Form & Inputs ===== */
+label,
+.stText,
+.stMarkdown {
+  color: #fff !important;
+}
+
+input,
+textarea,
+select {
+  background: rgba(255,255,255,0.1) !important;
+  color: #000 !important;            /* testo nero nei campi */
+  border: 1px solid rgba(255,255,255,0.7) !important;
+}
+
+/* ===== Pulsanti unificati (tutti i tipi: st.button, form_submit_button, download_button, etc.) ===== */
+.stButton > button,
+[data-baseweb="button"] > button {
+  background-color: #00AEEF !important;   /* azzurro chiaro Sielte */
+  color:            #FFFFFF !important;   /* testo bianco */
+  border:           2px solid #0077C8 !important; /* bordo blu medio */
+  border-radius:    8px !important;
+  padding:          0.75rem 1.5rem !important;
+  font-size:        1rem !important;
+  cursor:           pointer !important;
+  display:          inline-block !important;
+  margin:           0.5rem !important;
+  width:            auto !important;
+}
+
+.stButton > button:hover,
+[data-baseweb="button"] > button:hover {
+  background-color: #0077C8 !important;   /* hover: blu medio */
+}
+
+/* Rimuoviamo eventuali stili focus */
+.stButton > button:focus,
+[data-baseweb="button"] > button:focus {
+  box-shadow: none !important;
+  outline: none !important;
+}
