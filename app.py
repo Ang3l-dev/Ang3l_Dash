@@ -4,8 +4,7 @@ import json
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from office365.sharepoint.client_context import ClientContext
-from office365.runtime.auth.client_credential import ClientCredential
+import base64
 
 # ==============================
 # CONFIGURAZIONE BASE
@@ -15,7 +14,6 @@ BASE   = Path(__file__).parent
 STYLE  = BASE / "style.css"
 LOGO   = BASE / "sielte_logo.png"
 UTENTI = BASE / "utenti.json"
-CONFIG = BASE / "sharepoint_config.json"
 
 COLONNE_WIP = [
     "Divisione", "Descr.Divisione", "Impresa", "Descr.Impresa", "Materiale", "Descr.Materiale",
@@ -43,34 +41,23 @@ def check_login(email: str, pwd: str):
     return None
 
 def inject_css():
+    # CSS custom
     if STYLE.exists():
         st.markdown(f"<style>{STYLE.read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
+    # Logo opzionale
     if LOGO.exists():
-        import base64
         data = base64.b64encode(LOGO.read_bytes()).decode()
         st.markdown(f'<img src="data:image/png;base64,{data}" class="app-logo">', unsafe_allow_html=True)
     st.markdown('<div class="app-powered">Powered by Ang3l-Dev</div>', unsafe_allow_html=True)
-
-def sharepoint_upload(local_file_path: Path, folder_name: str, remote_filename: str) -> bool:
-    """Carica un file su SharePoint nella cartella indicata."""
-    try:
-        cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
-        ctx = ClientContext(cfg["site_url"]).with_credentials(
-            ClientCredential(cfg["client_id"], cfg["client_secret"])
-        )
-        target_folder = f"{cfg['doc_library']}/{folder_name}"
-        with open(local_file_path, "rb") as f:
-            content = f.read()
-        ctx.web.get_folder_by_server_relative_url(target_folder).upload_file(remote_filename, content).execute_query()
-        return True
-    except Exception as e:
-        st.error(f"Errore upload SharePoint: {e}")
-        return False
 
 # ==============================
 # PARSER TXT WIP
 # ==============================
 def parse_txt_file(uploaded_file) -> pd.DataFrame:
+    """
+    Converte un txt in DataFrame, ignorando righe di separatori/intestazioni.
+    Non rimuove righe duplicate; valida che ci siano 24 campi separati da '|'.
+    """
     try:
         raw = uploaded_file.read()
         text = raw.decode("cp1252", errors="ignore")
@@ -79,11 +66,13 @@ def parse_txt_file(uploaded_file) -> pd.DataFrame:
             line = line.strip()
             if not line or line.startswith("---") or line.startswith("|Divisione"):
                 continue
+            # rimuove l’eventuale '|' iniziale/finale e splitta
             campi = [c.strip() for c in line.strip("|").split("|")]
             if len(campi) == 24:
                 rows.append(campi)
         if rows:
-            return pd.DataFrame(rows, columns=COLONNE_WIP)
+            df = pd.DataFrame(rows, columns=COLONNE_WIP)
+            return df
     except Exception as e:
         st.error(f"Errore parsing TXT: {e}")
     return pd.DataFrame(columns=COLONNE_WIP)
@@ -102,14 +91,38 @@ def unione_wip():
         st.warning("⚠️ Devi caricare esattamente 8 file.")
         return
 
-    if st.button("Unisci e salva su SharePoint"):
-        df_unificato = pd.concat([parse_txt_file(f) for f in files], ignore_index=True)
+    if st.button("Unisci e genera Excel"):
+        # Parse di tutti i file
+        frames = []
+        for f in files:
+            df = parse_txt_file(f)
+            frames.append(df)
+        df_unificato = pd.concat(frames, ignore_index=True)
 
-        local_path = BASE / f"WIP_{datetime.today().strftime('%Y%m%d')}.xlsx"
-        df_unificato.to_excel(local_path, index=False, engine="openpyxl")
+        # Salvataggio locale + download
+        stamp = datetime.today().strftime('%Y%m%d')
+        filename = f"WIP_{stamp}.xlsx"
 
-        if sharepoint_upload(local_path, "WIP", local_path.name):
-            st.success("✅ File unificato salvato su SharePoint!")
+        # Scrivi su buffer per il download
+        out = BytesIO()
+        with pd.ExcelWriter(out, engine="openpyxl") as writer:
+            df_unificato.to_excel(writer, index=False, sheet_name="WIP")
+        out.seek(0)
+
+        st.download_button(
+            "📥 Scarica WIP unificato",
+            data=out.getvalue(),
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+        # (opzionale) salva anche in locale nella cartella del progetto
+        try:
+            (BASE / filename).write_bytes(out.getvalue())
+            st.success(f"✅ File unificato salvato: {filename}")
+        except Exception:
+            # se non può scrivere, va bene lo stesso: l’utente ha il download
+            pass
 
 def verifica_wbe():
     st.subheader("Verifica WBE e Matricole")
@@ -136,13 +149,20 @@ def verifica_wbe():
 
         output = BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            pd.DataFrame({"WBE mancanti": sorted(wbe_mancanti) or ["Nessuna WBE mancante"]}).to_excel(writer, index=False, sheet_name="WBE mancanti")
-            pd.DataFrame({"Matricole mancanti": sorted(mat_mancanti) or ["Nessuna Matricola mancante"]}).to_excel(writer, index=False, sheet_name="Matricole mancanti")
+            pd.DataFrame({"WBE mancanti": sorted(wbe_mancanti) or ["Nessuna WBE mancante"]}).to_excel(
+                writer, index=False, sheet_name="WBE mancanti"
+            )
+            pd.DataFrame({"Matricole mancanti": sorted(mat_mancanti) or ["Nessuna Matricola mancante"]}).to_excel(
+                writer, index=False, sheet_name="Matricole mancanti"
+            )
         output.seek(0)
 
-        st.download_button("📥 Scarica report", data=output.getvalue(),
-                           file_name="report_mancanti.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        st.download_button(
+            "📥 Scarica report",
+            data=output.getvalue(),
+            file_name="report_mancanti.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
         if wbe_mancanti or mat_mancanti:
             st.warning("⚠️ Alcune WBE o Matricole mancano nelle LUT.")
@@ -156,7 +176,7 @@ def aggiorna_storico():
     file_lut       = st.file_uploader("File LUT_WBE", type="xlsx")
     file_storico   = st.file_uploader("File Storico", type="xlsx")
 
-    if st.button("Aggiorna e salva su SharePoint"):
+    if st.button("Aggiorna e genera Excel"):
         if not file_unificato or not file_lut or not file_storico:
             st.warning("⚠️ Carica tutti i file richiesti.")
             return
@@ -176,11 +196,26 @@ def aggiorna_storico():
             df_finale = pd.concat([df_storico, df], ignore_index=True)
             df_finale.drop_duplicates(subset=["DataAggiornamento", "Codice WBS"], inplace=True)
 
-            local_path = BASE / "storico_dati.xlsx"
-            df_finale.to_excel(local_path, index=False, sheet_name="Storico", engine="openpyxl")
+            # Buffer per download
+            out = BytesIO()
+            with pd.ExcelWriter(out, engine="openpyxl") as writer:
+                df_finale.to_excel(writer, index=False, sheet_name="Storico")
+            out.seek(0)
 
-            if sharepoint_upload(local_path, "Storico", "storico_dati.xlsx"):
-                st.success("✅ Storico aggiornato e salvato su SharePoint!")
+            st.download_button(
+                "📥 Scarica storico aggiornato",
+                data=out.getvalue(),
+                file_name="storico_dati.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+            # (opzionale) salva anche in locale
+            try:
+                (BASE / "storico_dati.xlsx").write_bytes(out.getvalue())
+                st.success("✅ Storico aggiornato e salvato in locale (storico_dati.xlsx)")
+            except Exception:
+                pass
+
         except Exception as e:
             st.error(f"Errore aggiornamento: {e}")
 
@@ -243,3 +278,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
