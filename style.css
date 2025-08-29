@@ -73,3 +73,8 @@ select {
   box-shadow: none !important;
   outline: none !important;
 }
+/* Colore testo nome file caricato */
+    .uploadedFileName {
+        color: white !important;   /* puoi mettere anche #00FF00 o altro */
+        font-weight: bold;
+}
