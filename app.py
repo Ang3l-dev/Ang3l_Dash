@@ -170,36 +170,120 @@ def verifica_wbe():
             st.success("✅ Tutto OK! Nessuna mancanza.")
 
 def aggiorna_storico():
-    st.subheader("Aggiorna Storico")
+    st.subheader("Aggiorna Storico (snapshot per Area)")
 
-    file_unificato = st.file_uploader("File Unificato", type="xlsx")
-    file_lut       = st.file_uploader("File LUT_WBE", type="xlsx")
-    file_storico   = st.file_uploader("File Storico", type="xlsx")
+    file_unificato = st.file_uploader("File Unificato (con WBS e Valore in lavorazione)", type="xlsx")
+    file_lut       = st.file_uploader("File LUT_WBE (WBE → Area)", type="xlsx")
+    file_storico   = st.file_uploader("Storico corrente (Area, DataAggiornamento, Valore)", type="xlsx")
+    file_storico_prec = st.file_uploader("Storico precedente (OPZIONALE, per saldo iniziale)", type="xlsx")
 
     if st.button("Aggiorna e genera Excel"):
-        if not file_unificato or not file_lut or not file_storico:
-            st.warning("⚠️ Carica tutti i file richiesti.")
+        if not file_unificato or not file_lut:
+            st.warning("⚠️ Carica almeno File Unificato e LUT.")
             return
 
-        oggi = datetime.today().strftime("%Y-%m-%d")
-
         try:
-            df = pd.read_excel(file_unificato)[["Codice WBS", "Valore in lavorazione"]]
-            df["DataAggiornamento"] = oggi
+            # === 1) Leggo Unificato e LUT, costruisco snapshot TOTALE per Area ===
+            oggi = pd.to_datetime(datetime.today().date())  # data di oggi (senza orario)
 
-            df_lut = pd.read_excel(file_lut)[["WBE", "Area"]]
-            df = pd.merge(df, df_lut, left_on="Codice WBS", right_on="WBE", how="left")
+            df_u = pd.read_excel(file_unificato, dtype={"Codice WBS": str})
+            df_u = df_u.rename(columns={
+                "Valore in lavorazione": "ValoreInLav"
+            })[["Codice WBS", "ValoreInLav"]]
 
-            df_storico = pd.read_excel(file_storico)
-            df_storico = df_storico[df_storico["DataAggiornamento"] != oggi]
+            # forza numerico
+            df_u["ValoreInLav"] = pd.to_numeric(df_u["ValoreInLav"], errors="coerce").fillna(0)
 
-            df_finale = pd.concat([df_storico, df], ignore_index=True)
-            df_finale.drop_duplicates(subset=["DataAggiornamento", "Codice WBS"], inplace=True)
+            df_lut = pd.read_excel(file_lut, dtype={"WBE": str, "Area": str})[["WBE", "Area"]]
+            df_det = df_u.merge(df_lut, left_on="Codice WBS", right_on="WBE", how="left")
+            df_det["Area"] = df_det["Area"].fillna("Area non mappata")
 
-            # Buffer per download
+            # SNAPSHOT per Area = totale del giorno
+            snap_oggi = (
+                df_det.groupby("Area", as_index=False)["ValoreInLav"].sum()
+                .rename(columns={"ValoreInLav": "Valore"})
+            )
+            snap_oggi["DataAggiornamento"] = oggi
+
+            # === 2) Carico lo storico corrente (se c’è) ===
+            if file_storico:
+                stor = pd.read_excel(file_storico)
+                # normalizza tipi
+                if "DataAggiornamento" in stor.columns:
+                    stor["DataAggiornamento"] = pd.to_datetime(stor["DataAggiornamento"]).dt.date
+                    stor["DataAggiornamento"] = pd.to_datetime(stor["DataAggiornamento"])
+                else:
+                    # se il vecchio storico è “di dettaglio”, riduco a snapshot per Area
+                    # (Area, DataAggiornamento, Valore)
+                    # provo ad indovinare i nomi più comuni
+                    col_val = next((c for c in stor.columns if c.lower() in ["valore", "valore in lavorazione", "m_val_inlav"]), None)
+                    col_area = next((c for c in stor.columns if c.lower() == "area"), None)
+                    col_data = next((c for c in stor.columns if "data" in c.lower()), None)
+                    if not (col_val and col_area and col_data):
+                        raise ValueError("Lo storico corrente non ha colonne riconoscibili (Area, Data, Valore).")
+                    stor[col_val] = pd.to_numeric(stor[col_val], errors="coerce").fillna(0)
+                    stor[col_data] = pd.to_datetime(stor[col_data]).dt.date
+                    stor[col_data] = pd.to_datetime(stor[col_data])
+                    stor = (stor.groupby(["Area", col_data], as_index=False)[col_val]
+                            .sum()
+                            .rename(columns={col_val: "Valore", col_data: "DataAggiornamento"}))
+            else:
+                stor = pd.DataFrame(columns=["Area", "DataAggiornamento", "Valore"])
+
+            # rimuovo eventuale riga già presente per oggi
+            stor = stor[stor["DataAggiornamento"] != oggi]
+
+            # === 3) Se ho uno storico PRECEDENTE, genero i SALDI INIZIALI (seed) ===
+            # Serve quando si inizia un "nuovo" file e vuoi portarti dietro l'ultimo totale per Area
+            seeds = pd.DataFrame(columns=["Area", "DataAggiornamento", "Valore"])
+            if file_storico_prec is not None:
+                prec = pd.read_excel(file_storico_prec)
+                # normalizza tipi/nomi come sopra
+                if "DataAggiornamento" in prec.columns and "Valore" in prec.columns and "Area" in prec.columns:
+                    prec["DataAggiornamento"] = pd.to_datetime(prec["DataAggiornamento"]).dt.date
+                    prec["DataAggiornamento"] = pd.to_datetime(prec["DataAggiornamento"])
+                    # ultimo giorno per Area
+                    last_per_area = (prec.sort_values("DataAggiornamento")
+                                         .groupby("Area", as_index=False).tail(1))[["Area", "DataAggiornamento", "Valore"]]
+                else:
+                    col_val = next((c for c in prec.columns if c.lower() in ["valore", "valore in lavorazione", "m_val_inlav"]), None)
+                    col_area = next((c for c in prec.columns if c.lower() == "area"), None)
+                    col_data = next((c for c in prec.columns if "data" in c.lower()), None)
+                    if not (col_val and col_area and col_data):
+                        raise ValueError("Lo storico precedente non ha colonne riconoscibili (Area, Data, Valore).")
+                    prec[col_val] = pd.to_numeric(prec[col_val], errors="coerce").fillna(0)
+                    prec[col_data] = pd.to_datetime(prec[col_data]).dt.date
+                    prec[col_data] = pd.to_datetime(prec[col_data])
+                    prec_grp = (prec.groupby(["Area", col_data], as_index=False)[col_val]
+                                    .sum()
+                                    .rename(columns={col_val: "Valore", col_data: "DataAggiornamento"}))
+                    last_per_area = (prec_grp.sort_values("DataAggiornamento")
+                                           .groupby("Area", as_index=False).tail(1))
+
+                if not stor.empty:
+                    first_date_new = stor["DataAggiornamento"].min()
+                else:
+                    # se il corrente è vuoto, semino rispetto alla data di oggi
+                    first_date_new = oggi
+
+                seeds = last_per_area.copy()
+                seeds["DataAggiornamento"] = first_date_new - pd.Timedelta(days=1)
+
+            # === 4) Concat: seeds (opz) + storico corrente (senza oggi) + snapshot di oggi ===
+            df_finale = pd.concat([seeds, stor, snap_oggi], ignore_index=True)
+            df_finale = (df_finale
+                         .drop_duplicates(subset=["Area", "DataAggiornamento"], keep="last")
+                         .sort_values(["DataAggiornamento", "Area"]))
+
+            # === 5) Salvo: foglio Storico (per Area) + (opz) Dettaglio del giorno per audit ===
             out = BytesIO()
             with pd.ExcelWriter(out, engine="openpyxl") as writer:
                 df_finale.to_excel(writer, index=False, sheet_name="Storico")
+                # metto anche il dettaglio del giorno (utile per controlli)
+                (df_det.assign(DataAggiornamento=oggi)
+                      .rename(columns={"ValoreInLav": "Valore"})
+                      [["DataAggiornamento", "Area", "Codice WBS", "Valore"]]
+                      .to_excel(writer, index=False, sheet_name="Dettaglio_oggi"))
             out.seek(0)
 
             st.download_button(
@@ -209,15 +293,15 @@ def aggiorna_storico():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-            # (opzionale) salva anche in locale
             try:
                 (BASE / "storico_dati.xlsx").write_bytes(out.getvalue())
-                st.success("✅ Storico aggiornato e salvato in locale (storico_dati.xlsx)")
+                st.success("✅ Storico aggiornato (snapshot per Area) salvato in locale.")
             except Exception:
                 pass
 
         except Exception as e:
             st.error(f"Errore aggiornamento: {e}")
+
 
 # ==============================
 # LOGIN & ROUTING
